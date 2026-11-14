@@ -1,0 +1,9 @@
+import {createApp} from './server.mjs';
+import assert from 'node:assert/strict';
+let calls=[];const key='test-key-only';let fail=false;
+const fetcher=async(url,opts)=>{calls.push({url,opts});return {ok:!fail,status:429,json:async()=>url.includes('generateContent')?{candidates:[{content:{parts:[{text:'Why would sample size remove confounding?'}]}}]}:{models:[{name:'models/gemini-test-flash',supportedGenerationMethods:['generateContent']}]}}};
+const handler=createApp({key,fetcher}).listeners('request')[0];
+async function run(url,body,extra={}){let status,data;const req={url,method:body?'POST':'GET',headers:{host:'127.0.0.1:4173',...(body?{'content-type':'application/json'}:{}),...extra},async *[Symbol.asyncIterator](){if(body)yield JSON.stringify(body)}};const res={writeHead(s){status=s},end(d){data=String(d)}};await handler(req,res);return {status,data};}
+assert.equal((await run('/')).status,200);assert(!(await run('/')).data.includes(key));assert.equal((await run('/api/models')).status,200);
+const body={model:'gemini-test-flash',topic:'Correlation',phase:0,messages:[{role:'user',text:'Correlation does not prove causation.'}]};
+assert.equal((await run('/api/chat',body)).status,200);assert.equal(calls[1].opts.headers['x-goog-api-key'],key);assert(!calls[1].url.includes(key));assert.equal((await run('/api/chat',body,{origin:'https://other.example'})).status,403);assert.equal((await run('/api/chat',{...body,model:'unlisted'})).status,400);assert.equal((await run('/server.mjs')).status,404);fail=true;const err=await run('/api/chat',body);assert.equal(err.status,502);assert(err.data.includes('quota'));assert(!err.data.includes(key));console.log('PASS: request handlers, model listing, generation, key isolation, origin rejection, invalid models, private files and quota errors. Mock Google; no network or browser validation.');
